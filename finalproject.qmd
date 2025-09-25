@@ -1,0 +1,27 @@
+---
+title: "Final Project"
+format: html
+editor: visual
+---
+
+```{r}
+#scatterplot
+ggplot(data, aes(x = G, y = W)) +
+  geom_point(color = "darkblue", alpha = 0.6) +
+  labs(
+    title = "Wins vs Games Played (2013–2024)",
+    x = "Games Played",
+    y = "Wins",
+    caption = "Each point represents one team in one season"
+  ) +
+  theme_minimal()
+
+#boxplot
+ggplot(data, aes(x = factor(YEAR), y = W)) +
+  geom_boxplot(fill = "lightgreen", color = "black") +
+  labs(title = "Boxplot of Wins by Year (2013–2024)",
+       x = "Season",
+       y = "Wins") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```

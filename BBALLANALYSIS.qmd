@@ -1,0 +1,251 @@
+---
+title: "March Madness"
+format: html
+editor: visual
+---
+
+```{r}
+#libraries
+library(ggplot2)
+library(tidyr)
+library(bestglm)
+library(dplyr)
+
+```
+
+```{r}
+#reading in data
+bball_data <- read.csv("cbb.csv", header = TRUE)
+
+head(bball_data)
+str(bball_data)
+
+bball_set <- bball_data |>
+  mutate(win_pct = W / G) |>
+  select(ADJOE, ADJDE, EFG_O, EFG_D, X2P_O, X2P_D, X3P_O, X3P_D, ADJ_T, TOR, TORD, ORB, DRB, win_pct)
+
+head(bball_set)
+
+```
+
+### EDA For College Basketball Regression Analysis
+
+##### 
+
+```{r}
+
+ggplot(bball_set, aes(x=win_pct))+
+  geom_histogram(binwidth = 0.05, color = "black", fill = "skyblue")+
+  theme_minimal()+
+  labs(
+    title = "Distribution of Win Percentage",
+    subtitle = "NCAA D1 Mens College Basketball",
+    x = "Single Season Win Percentage",
+    y = "Count"
+  )
+cor_matrix <- cor(bball_set, use = "complete.obs")  
+corrplot::corrplot(cor_matrix, type = "upper")                   
+
+tstmodel <- lm(win_pct ~ EFG_O + EFG_D + X2P_D + X2P_O + X3P_O + X3P_D + ORB + DRB + TOR, data = bball_set)
+smplemodel <- lm(win_pct ~ EFG_O + X3P_D + ORB + DRB +TOR + X2P_D, data = bball_set)
+
+
+pot_data <- bball_set |>
+  select(EFG_O, X3P_D, X2P_D, ORB, DRB, TOR, win_pct)
+
+cor_matrix2 <- cor(pot_data, use = "complete.obs")
+corrplot::corrplot(cor_matrix2, type = "upper")
+summary(tstmodel)
+summary(smplemodel)
+```
+
+### Model Selection
+
+#### Variable Inflation Factor
+
+```{r}
+#VIF testing
+library(car)
+vif_value <- vif(smplemodel)
+print(vif_value)
+mean(vif_value)
+```
+
+Model Selection using LASSO, RIDGE, Best Subsets
+
+```{r}
+
+#AIC
+Best_AIC <- bestglm(bball_set, IC = "AIC")
+print(Best_AIC$BestModel)
+summary(Best_AIC$BestModel)
+
+#BIC
+Best_BIC <- bestglm(bball_set, IC = "BIC")
+print(Best_BIC$BestModel)
+summary(Best_BIC$BestModel)
+```
+
+```{r}
+#LASSO
+library(glmnet)
+library(Matrix)
+
+x <- model.matrix(win_pct ~ EFG_O + EFG_D + X2P_D + X2P_O + X3P_O + X3P_D + ORB + DRB + TOR, data = bball_set)
+y <- bball_set$win_pct
+
+set.seed(123)
+cv_lasso <- cv.glmnet(x, y, alpha = 1)
+lambda1se <- cv_lasso$lambda.1se
+lasso_model <- glmnet(x, y, alpha = 1, lambda = lambda1se)
+
+coef(lasso_model)
+```
+
+LASSO = EFG_O + EFG_D + X2P_O + X3P_D + ORB + DRB + TOR
+
+BIC = ADJDE + EFG_O + EFG_D + X2P_D + ADJ_T + TOR + TORD + ORB + DRB
+
+AIC = ADJDE + EFG_O + EFG_D + X2P_D + ADJ_T + TOR + TORD + ORB + DRB
+
+```         
+```
+
+### Cross Validation to determine Best Model Fit
+
+```{r}
+set.seed(123)
+n_iterations <- 100
+
+mse_results <- matrix(NA, nrow = n_iterations, ncol = 4)
+colnames(mse_results) <- c("OLS", "BestSubset_AIC", "BestSubset_BIC", "LASSO")
+
+for (i in 1:n_iterations) {
+  sample_idx <- sample(nrow(bball_set), 0.8 * nrow(bball_set))
+  train_data <- bball_set[sample_idx, ]
+  test_data <- bball_set[-sample_idx, ]
+  
+  x_train <- model.matrix(win_pct ~ EFG_O + EFG_D + X2P_D + X2P_O + X3P_O + X3P_D + ORB + DRB + TOR, data=train_data)[,-1]
+y_train <- train_data$win_pct
+x_test <- model.matrix(win_pct ~ EFG_O + EFG_D + X2P_D + X2P_O + X3P_O + X3P_D + ORB + DRB + TOR, data=test_data)[,-1]
+y_test <- test_data$win_pct
+  
+  
+  ols_model <- lm(win_pct ~ EFG_O + EFG_D + X2P_D + X2P_O + X3P_O + X3P_D + ORB + DRB + TOR, data=train_data)
+  ols_preds <- predict(ols_model, test_data)
+  mse_results[i, "OLS"] <- mean((y_test - ols_preds)^2)
+  
+  
+  train_subset <- train_data[, c("EFG_O", "EFG_D", "X2P_D", "X2P_O", "X3P_O", "X3P_D", "ORB", "DRB", "TOR", "win_pct")]
+  best_aic <- bestglm(train_subset, IC="AIC")$BestModel
+  aic_preds <- predict(best_aic, test_data)
+  mse_results[i, "BestSubset_AIC"] <- mean((y_test - aic_preds)^2)
+  
+  
+  best_bic <- bestglm(train_subset, IC="BIC")$BestModel
+  bic_preds <- predict(best_bic, test_data)
+  mse_results[i, "BestSubset_BIC"] <- mean((y_test - bic_preds)^2)
+  
+  
+  cv_lasso <- cv.glmnet(x_train, y_train, alpha = 1)
+  lasso_preds <- predict(cv_lasso, s=cv_lasso$lambda.1se, newx=x_test)
+  mse_results[i, "LASSO"] <- mean((y_test - lasso_preds)^2)
+}
+
+avg_mse <- colMeans(mse_results)
+print("Average Out-of-Sample MSE for each Model:")
+print(avg_mse)
+```
+
+```{r}
+lasso <- lm(win_pct ~ EFG_O + EFG_D + X2P_O + X3P_D + ORB + DRB + TOR, data = bball_set)
+summary(lasso)
+```
+
+```{r}
+library(dplyr)
+
+march_ball <- march_ball %>%
+  mutate(GamesWon = case_when(
+    POSTSEASON == "R64" ~ 0,
+    POSTSEASON == "R32" ~ 1,
+    POSTSEASON == "S16" ~ 2,
+    POSTSEASON == "E8"  ~ 3,
+    POSTSEASON == "F4"  ~ 4,
+    POSTSEASON == "2ND" ~ 5,
+    POSTSEASON == "Champions" ~ 6,
+    TRUE ~ NA_real_  # Handles unexpected values
+  ))
+
+upsets <- march_ball |>
+  filter(SEED == 11 | SEED == 12 | SEED == 13 | SEED == 14 | SEED == 15 | SEED == 16) |>
+  filter(GamesWon >= 1) 
+  
+
+ggplot(data = upsets, aes(x = CONF, y = GamesWon, fill = CONF)) +
+  geom_bar(stat = "identity") +  # Aggregate GamesWon for each Conference
+  labs(title = "Tournament Upsets: Games Won by Conference",
+       x = "Conference",
+       y = "Total Games Won") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotates x-axis labels
+
+
+ggplot() +
+  # First dataset: All teams (march_ball)
+  geom_point(data = march_ball, aes(x = ADJDE, y = WinPCT), color = "blue", alpha = 0.5) +
+
+  # Second dataset: Only upsets (upsets)
+  geom_point(data = upsets, aes(x = ADJDE, y = WinPCT), color = "red", alpha = 0.8, size = 3) +
+
+ 
+  theme_minimal()
+
+
+ggplot(data = march_ball, aes(x = ORB, y = DRB))+
+  geom_point()
+```
+
+```{r}
+best_model <- Best_AIC$BestModel
+plot(best_model)
+
+summary(best_model)
+
+library(corrplot)
+pairs(bball_set[,c("ADJDE", "EFG_O", "EFG_D", "X2P_D", "ADJ_T", "TOR", "TORD", "ORB", "DRB")], main = "Scatter Plot Matrix for AIC Best Model Fit")
+
+pairs(bball_set[, c("EFG_O", "EFG_D", "X2P_O", "X3P_D", "ORB", "DRB", "TOR")], main = "Scatterplot Matrix: LASSO")
+
+Multico <- vif(best_model)
+print(Multico)
+mean(Multico)
+```
+
+```{r}
+new_model1 <- lm(win_pct ~ ADJDE + EFG_O + EFG_D + ADJ_T + TOR + TORD + ORB + DRB, data = bball_set)
+summary(new_model1)
+
+new_model2 <- lm(win_pct ~ ADJDE + EFG_O + X2P_D + ADJ_T + TOR + TORD + ORB + DRB, data = bball_set)
+summary(new_model2)
+
+mod1 <- vif(new_model1)
+mod2 <- vif(new_model2)
+
+print(mod1)
+print(mod2)
+mean(mod1)
+```
+
+```{r}
+filtered <- bball_data |>
+  filter(TEAM == "Houston") |>
+  filter(YEAR == 2019)
+
+
+```
+
+```{r}
+prediction <- predict(new_model1, newdata = filtered)
+print(prediction)
+```
