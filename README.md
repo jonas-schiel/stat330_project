@@ -21,8 +21,8 @@ an adjusted R² of 0.82.
 - VIF analysis for multicollinearity diagnostics
 
 ## Files
-- `stat330_proj.pdf` — Full written report with results and interpretation
-- `analysis.R` — R code for data cleaning, modeling, and diagnostics
+- `finalpaper330.pdf` — Full written report with results and interpretation
+- `BBALLANALYSIS.qmd` — R code for modeling, and diagnostics
 
 ## Data
 College Basketball Dataset compiled by Andrew Sundberg, available on Kaggle. 
